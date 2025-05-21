@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
 
     // Start client and test
     Client client;
-    client.storeFile("data/100KB.txt");
+    client.storeFile("100KB.txt");
     QThread::sleep(2); // Wait for storage to complete
     client.retrieveFile("100KB.txt", "output.txt");
 
