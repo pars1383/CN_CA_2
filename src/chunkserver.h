@@ -1,17 +1,23 @@
 #ifndef CHUNKSERVER_H
 #define CHUNKSERVER_H
+
 #include <QObject>
 #include <QTcpServer>
+#include <QTcpSocket>
 
 class ChunkServer : public QObject {
     Q_OBJECT
 public:
     explicit ChunkServer(int id, QObject *parent = nullptr);
+    bool listen(quint16 port);
+
 private slots:
-    void handleConnection();
+    void handleNewConnection();
+    void handleRequest(QTcpSocket *clientSocket);
+
 private:
-    int serverId;
     QTcpServer *server;
-    int getNextServerId(int currentId);
+    int serverId;
 };
-#endif
+
+#endif // CHUNKSERVER_H

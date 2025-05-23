@@ -1,10 +1,10 @@
-QT = core network
 QT -= gui
-CONFIG += c++17
-TARGET = manager
-TEMPLATE = app
+QT += core network
 
-SOURCES = \
+CONFIG += c++17 console
+CONFIG -= app_bundle
+
+SOURCES += \
     src/manager_main.cpp \
     src/client.cpp \
     src/manager.cpp \
@@ -12,9 +12,15 @@ SOURCES = \
     src/reedsolomon.cpp \
     src/firewall_punching.cpp
 
-HEADERS = \
+HEADERS += \
     src/client.h \
     src/manager.h \
     src/chunkserver.h \
     src/reedsolomon.h \
     src/firewall_punching.h
+
+INCLUDEPATH += src
+
+qnx: target.path = /tmp/$${TARGET}/bin
+else: unix:!android: target.path = /opt/$${TARGET}/bin
+!isEmpty(target.path): INSTALLS += target
