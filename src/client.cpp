@@ -97,12 +97,19 @@ void Client::storeFile(const QString &filePath) {
         }
     }
     file.close();
+    managerSocket->disconnectFromHost();
     qDebug() << "File stored successfully";
     retrieveFile(request["file_name"].toString());
 }
 
 void Client::retrieveFile(const QString &fileName) {
     qDebug() << "Starting file retrieval for:" << fileName;
+
+    // Ensure socket is not connected
+    if (managerSocket->state() != QAbstractSocket::UnconnectedState) {
+        managerSocket->disconnectFromHost();
+        managerSocket->waitForDisconnected(1000);
+    }
 
     // Connect to manager
     managerSocket->connectToHost("127.0.0.1", 5000);
@@ -187,5 +194,6 @@ void Client::retrieveFile(const QString &fileName) {
         }
     }
     outputFile.close();
+    managerSocket->disconnectFromHost();
     qDebug() << "File retrieved successfully";
 }
