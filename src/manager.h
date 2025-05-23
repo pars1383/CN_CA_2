@@ -2,13 +2,8 @@
 #define MANAGER_H
 #include <QObject>
 #include <QTcpServer>
+#include <QJsonObject>
 #include <QMap>
-
-struct FileMetadata {
-    QString fileName;
-    qint64 fileSize;
-    QString firstServer;
-};
 
 class Manager : public QObject {
     Q_OBJECT
@@ -18,7 +13,6 @@ private slots:
     void handleConnection();
 private:
     QTcpServer *server;
-    QMap<QString, FileMetadata> metadata;
-    QVector<int> chunkServers; // DFS order
+    QMap<QString, QJsonObject> metadata;
 };
 #endif

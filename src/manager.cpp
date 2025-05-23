@@ -7,44 +7,59 @@
 
 Manager::Manager(QObject *parent) : QObject(parent) {
     server = new QTcpServer(this);
+    if (!server->listen(QHostAddress::Any, 5000)) {
+        qDebug() << "Manager failed to listen on port 5000";
+        return;
+    }
     connect(server, &QTcpServer::newConnection, this, &Manager::handleConnection);
-    server->listen(QHostAddress::Any, 5000);
     qDebug() << "Manager listening on port 5000";
-
-    // DFS traversal order for chunk servers
-    chunkServers = {1, 2, 4, 8, 9, 5, 10, 11, 3, 6, 7, 12, 13, 14, 15};
 }
 
 void Manager::handleConnection() {
-    QTcpSocket *client = server->nextPendingConnection();
-    connect(client, &QTcpSocket::readyRead, this, [=]() {
-        QJsonObject request = QJsonDocument::fromJson(client->readAll()).object();
-        QString operation = request["operation"].toString();
+    QTcpSocket *socket = server->nextPendingConnection();
+    if (!socket->waitForReadyRead(5000)) {
+        qDebug() << "Manager: No data from client:" << socket->errorString();
+        socket->deleteLater();
+        return;
+    }
 
-        if (operation == "store") {
-            QString fileName = request["file_name"].toString();
-            qint64 fileSize = request["file_size"].toInt();
-            int numChunks = (fileSize + 8191) / 8192; // Ceiling division
-            QString firstServer = QString("127.0.0.1:%1").arg(5000 + chunkServers[0]);
+    QJsonObject request = QJsonDocument::fromJson(socket->readAll()).object();
+    qDebug() << "Manager received request:" << request;
 
-            // Store metadata
-            metadata[fileName] = {fileName, fileSize, firstServer};
+    QJsonObject response;
+    if (request["operation"].toString() == "store") {
+        QString fileName = request["file_name"].toString();
+        qint64 fileSize = request["file_size"].toDouble();
+        int chunkSize = 8192; // 8 KB
+        int numChunks = (fileSize + chunkSize - 1) / chunkSize;
+        QString firstServer = "127.0.0.1:5001"; // Start at chunk server 1
 
-            QJsonObject response;
-            response["first_server"] = firstServer;
-            response["chunk_size"] = 8192;
-            response["num_chunks"] = numChunks;
-            client->write(QJsonDocument(response).toJson());
-        } else if (operation == "retrieve") {
-            QString fileName = request["file_name"].toString();
-            QJsonObject response;
-            if (metadata.contains(fileName)) {
-                response["first_server"] = metadata[fileName].firstServer;
-            } else {
-                response["error"] = "File not found";
-            }
-            client->write(QJsonDocument(response).toJson());
+        QJsonObject fileMetadata;
+        fileMetadata["chunk_size"] = chunkSize;
+        fileMetadata["num_chunks"] = numChunks;
+        fileMetadata["first_server"] = firstServer;
+        metadata[fileName] = fileMetadata;
+
+        response["first_server"] = firstServer;
+        response["chunk_size"] = chunkSize;
+        response["num_chunks"] = numChunks;
+        qDebug() << "Manager sending store response for" << fileName << ":" << response;
+    } else if (request["operation"].toString() == "retrieve") {
+        QString fileName = request["file_name"].toString();
+        if (!metadata.contains(fileName)) {
+            response["error"] = "File not found";
+            qDebug() << "Manager: File not found:" << fileName;
+        } else {
+            response = metadata[fileName];
+            qDebug() << "Manager sending retrieve response for" << fileName << ":" << response;
         }
-        client->disconnectFromHost();
-    });
+    } else {
+        response["error"] = "Invalid operation";
+        qDebug() << "Manager: Invalid operation in request:" << request;
+    }
+
+    socket->write(QJsonDocument(response).toJson());
+    socket->flush();
+    qDebug() << "Manager sent response to client";
+    socket->deleteLater();
 }

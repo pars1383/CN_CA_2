@@ -2,7 +2,6 @@
 #define CHUNKSERVER_H
 #include <QObject>
 #include <QTcpServer>
-#include <QVector>
 
 class ChunkServer : public QObject {
     Q_OBJECT
@@ -11,8 +10,8 @@ public:
 private slots:
     void handleConnection();
 private:
-    int id;
+    int serverId;
     QTcpServer *server;
-    QVector<int> chunkServers; // DFS order
+    int getNextServerId(int currentId);
 };
 #endif

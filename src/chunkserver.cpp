@@ -3,79 +3,94 @@
 #include <QTcpSocket>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QFile>
 #include <QDir>
+#include <QFile>
 #include <QDebug>
-#include "reedsolomon.h"
 
-ChunkServer::ChunkServer(int id, QObject *parent) : QObject(parent), id(id) {
+ChunkServer::ChunkServer(int id, QObject *parent) : QObject(parent), serverId(id) {
     server = new QTcpServer(this);
+    if (!server->listen(QHostAddress::Any, 5000 + id)) {
+        qDebug() << "ChunkServer" << id << "failed to listen on port" << (5000 + id);
+        return;
+    }
     connect(server, &QTcpServer::newConnection, this, &ChunkServer::handleConnection);
-    server->listen(QHostAddress::Any, 5000 + id);
-    QDir().mkpath(QString("./CHUNK-%1").arg(id));
     qDebug() << "ChunkServer" << id << "listening on port" << (5000 + id);
-
-    // DFS traversal order
-    chunkServers = {1, 2, 4, 8, 9, 5, 10, 11, 3, 6, 7, 12, 13, 14, 15};
 }
 
 void ChunkServer::handleConnection() {
-    QTcpSocket *client = server->nextPendingConnection();
-    connect(client, &QTcpSocket::readyRead, this, [=]() {
-        QJsonObject request = QJsonDocument::fromJson(client->readAll()).object();
-        QString fileId = request["file_id"].toString();
+    QTcpSocket *socket = server->nextPendingConnection();
+    if (!socket->waitForReadyRead(5000)) {
+        qDebug() << "ChunkServer" << serverId << "no data from client:" << socket->errorString();
+        socket->deleteLater();
+        return;
+    }
 
-        if (request.contains("data")) {
+    QJsonObject request = QJsonDocument::fromJson(socket->readAll()).object();
+    qDebug() << "ChunkServer" << serverId << "received request:" << request;
+
+    if (request.contains("file_id")) {
+        QString fileId = request["file_id"].toString();
+        int chunkIndex = request["chunk_index"].toInt(-1);
+
+        if (chunkIndex >= 0) {
             // Store chunk
-            int chunkIndex = request["chunk_index"].toInt();
-            QByteArray noisyData = QByteArray::fromBase64(request["data"].toString().toUtf8());
-            QByteArray data = decodeData(noisyData);
-            if (data.isEmpty()) {
+            QString dirPath = QString("CHUNK-%1").arg(serverId);
+            QDir().mkpath(dirPath);
+            QString filePath = QString("%1/chunk_%2_%3.bin").arg(dirPath, fileId).arg(chunkIndex);
+            QFile file(filePath);
+            if (!file.open(QIODevice::WriteOnly)) {
+                qDebug() << "ChunkServer" << serverId << "cannot open file:" << filePath;
                 QJsonObject response;
-                response["error"] = "Chunk irrecoverable";
-                client->write(QJsonDocument(response).toJson());
-                client->disconnectFromHost();
+                response["error"] = "Cannot open chunk file";
+                socket->write(QJsonDocument(response).toJson());
+                socket->deleteLater();
                 return;
             }
+            QByteArray data = QByteArray::fromBase64(request["data"].toString().toUtf8());
+            file.write(data);
+            file.close();
+            qDebug() << "ChunkServer" << serverId << "stored chunk:" << filePath << "size:" << data.size();
 
-            QString filePath = QString("./CHUNK-%1/chunk_%2_%3.bin").arg(id).arg(fileId).arg(chunkIndex);
-            QFile file(filePath);
-            if (file.open(QIODevice::WriteOnly)) {
-                file.write(data);
-                file.close();
-            }
-
-            // Send next server address
+            // Send response with next server
             QJsonObject response;
-            int nextIndex = chunkServers.indexOf(id) + 1;
-            if (nextIndex < chunkServers.size()) {
-                response["next_server"] = QString("127.0.0.1:%1").arg(5000 + chunkServers[nextIndex]);
-            } else {
-                response["next_server"] = "";
-            }
-            client->write(QJsonDocument(response).toJson());
+            int nextId = (chunkIndex + 1 < 15) ? getNextServerId(serverId) : 0;
+            response["next_server"] = nextId ? QString("127.0.0.1:%1").arg(5000 + nextId) : "";
+            socket->write(QJsonDocument(response).toJson());
+            qDebug() << "ChunkServer" << serverId << "sent response, next server:" << response["next_server"].toString();
         } else {
             // Retrieve chunk
-            QString filePath = QString("./CHUNK-%1/chunk_%2_*.bin").arg(id).arg(fileId);
-            QDir dir(QString("./CHUNK-%1").arg(id));
-            QStringList files = dir.entryList({QString("chunk_%1_*.bin").arg(fileId)}, QDir::Files);
-            if (!files.isEmpty()) {
-                QFile file(QString("./CHUNK-%1/%2").arg(id).arg(files[0]));
-                if (file.open(QIODevice::ReadOnly)) {
-                    QByteArray data = file.readAll();
-                    file.close();
-                    QByteArray encodedData = encodeData(data);
-                    QByteArray noisyData = addNoise(encodedData, 0.01);
-
-                    QJsonObject response;
-                    response["data"] = QString(noisyData.toBase64());
-                    int nextIndex = chunkServers.indexOf(id) + 1;
-                    response["next_server"] = (nextIndex < chunkServers.size()) ?
-                        QString("127.0.0.1:%1").arg(5000 + chunkServers[nextIndex]) : "";
-                    client->write(QJsonDocument(response).toJson());
-                }
+            QString filePath = QString("CHUNK-%1/chunk_%2_%3.bin").arg(serverId).arg(fileId).arg(request["chunk_index"].toInt());
+            QFile file(filePath);
+            if (!file.open(QIODevice::ReadOnly)) {
+                qDebug() << "ChunkServer" << serverId << "cannot open chunk:" << filePath;
+                QJsonObject response;
+                response["error"] = "Chunk not found";
+                socket->write(QJsonDocument(response).toJson());
+                socket->deleteLater();
+                return;
             }
+            QByteArray data = file.readAll();
+            file.close();
+            qDebug() << "ChunkServer" << serverId << "read chunk:" << filePath << "size:" << data.size();
+
+            QJsonObject response;
+            response["data"] = QString(data.toBase64());
+            int nextId = getNextServerId(serverId);
+            response["next_server"] = nextId ? QString("127.0.0.1:%1").arg(5000 + nextId) : "";
+            socket->write(QJsonDocument(response).toJson());
+            qDebug() << "ChunkServer" << serverId << "sent chunk, next server:" << response["next_server"].toString();
         }
-        client->disconnectFromHost();
-    });
+    }
+    socket->deleteLater();
+}
+
+int ChunkServer::getNextServerId(int currentId) {
+    // DFS order: 1, 2, 4, 8, 9, 5, 10, 11, 3, 6, 7, 12, 13, 14, 15
+    int order[] = {1, 2, 4, 8, 9, 5, 10, 11, 3, 6, 7, 12, 13, 14, 15};
+    for (int i = 0; i < 14; ++i) {
+        if (order[i] == currentId) {
+            return order[i + 1];
+        }
+    }
+    return 0;
 }
