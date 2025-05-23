@@ -11,3 +11,5 @@ SUBDIRS += manager client chunkservers
 manager.file = manager.pro
 client.file = client.pro
 chunkservers.file = chunkservers.pro
+
+

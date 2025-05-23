@@ -19,7 +19,7 @@ HEADERS += \
     src/reedsolomon.h \
     src/firewall_punching.h
 
-INCLUDEPATH += src
+INCLUDEPATH += src lib/schifra/schifra
 
 qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
