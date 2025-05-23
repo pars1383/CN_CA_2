@@ -6,6 +6,8 @@
 #include <QCoreApplication>
 #include "reedsolomon.h"
 
+// CN_CA_2: Enhanced error handling and retrieval logic
+
 Client::Client(QObject *parent) : QObject(parent) {
     managerSocket = new QTcpSocket(this);
 }
@@ -42,6 +44,7 @@ void Client::storeFile(const QString &filePath) {
     // Read manager response
     if (!managerSocket->waitForReadyRead(15000)) {
         qDebug() << "No response from manager";
+        file.close();
         return;
     }
     QJsonDocument responseDoc = QJsonDocument::fromJson(managerSocket->readAll());
@@ -53,13 +56,21 @@ void Client::storeFile(const QString &filePath) {
 
     // Store chunks
     QString currentServer = firstServer;
+    bool storageSuccess = true;
     for (int i = 0; i < numChunks; ++i) {
         QByteArray chunk = file.read(chunkSize);
         qDebug() << "Read chunk" << i << "size:" << chunk.size();
         QByteArray encodedChunk = encodeData(chunk);
-        qDebug() << "Encoded and added noise to chunk" << i;
+        if (encodedChunk.isEmpty()) {
+            qDebug() << "Encoding failed for chunk" << i;
+            storageSuccess = false;
+            break;
+        }
+        encodedChunk = addNoise(encodedChunk, 0.01); // Apply noise after encoding
+        qDebug() << "Encoded and added noise to chunk" << i << "size:" << encodedChunk.size();
 
         // Retry connection up to 3 times
+        bool chunkStored = false;
         for (int retry = 0; retry < 3; ++retry) {
             QTcpSocket chunkSocket;
             QString host = currentServer.split(":").first();
@@ -86,20 +97,30 @@ void Client::storeFile(const QString &filePath) {
                 if (chunkResponse["status"].toString() == "success") {
                     currentServer = chunkResponse["next_server"].toString();
                     qDebug() << "Received response for chunk" << i << "Next server:" << currentServer;
+                    chunkStored = true;
                     break;
                 } else {
-                    qDebug() << "Invalid response for chunk" << i;
+                    qDebug() << "Invalid response for chunk" << i << ":" << chunkResponse["message"].toString();
                 }
             } else {
                 qDebug() << "No response from chunk server:" << currentServer << chunkSocket.errorString();
-                continue;
             }
+        }
+        if (!chunkStored) {
+            qDebug() << "Failed to store chunk" << i << "after retries";
+            storageSuccess = false;
+            break;
         }
     }
     file.close();
     managerSocket->disconnectFromHost();
-    qDebug() << "File stored successfully";
-    retrieveFile(request["file_name"].toString());
+    
+    if (storageSuccess) {
+        qDebug() << "File stored successfully";
+        retrieveFile(request["file_name"].toString());
+    } else {
+        qDebug() << "File storage failed, skipping retrieval";
+    }
 }
 
 void Client::retrieveFile(const QString &fileName) {
@@ -151,6 +172,7 @@ void Client::retrieveFile(const QString &fileName) {
     QString currentServer = firstServer;
     for (int i = 0; i < numChunks; ++i) {
         // Retry connection up to 3 times
+        bool chunkRetrieved = false;
         for (int retry = 0; retry < 3; ++retry) {
             QTcpSocket chunkSocket;
             QString host = currentServer.split(":").first();
@@ -176,21 +198,29 @@ void Client::retrieveFile(const QString &fileName) {
                 if (chunkResponse["status"].toString() == "success") {
                     QByteArray decodedChunk = QByteArray::fromBase64(chunkResponse["data"].toString().toUtf8());
                     QByteArray decodedData = decodeData(decodedChunk);
-                    if (decodedData.size() > chunkSize) {
-                        qDebug() << "Warning: Decoded chunk" << i << "size" << decodedData.size() << "exceeds expected" << chunkSize;
-                        decodedData = decodedData.left(chunkSize);
+                    if (decodedData.isEmpty()) {
+                        qDebug() << "Decoding failed for chunk" << i;
+                    } else {
+                        if (decodedData.size() > chunkSize) {
+                            qDebug() << "Warning: Decoded chunk" << i << "size" << decodedData.size() << "exceeds expected" << chunkSize;
+                            decodedData = decodedData.left(chunkSize);
+                        }
+                        outputFile.write(decodedData);
                     }
-                    outputFile.write(decodedData);
                     currentServer = chunkResponse["next_server"].toString();
                     qDebug() << "Received chunk" << i << "size:" << decodedData.size() << "Next server:" << currentServer;
+                    chunkRetrieved = true;
                     break;
                 } else {
-                    qDebug() << "Invalid response for chunk" << i;
+                    qDebug() << "Invalid response for chunk" << i << ":" << chunkResponse["message"].toString();
                 }
             } else {
                 qDebug() << "No response from chunk server:" << currentServer << chunkSocket.errorString();
-                continue;
             }
+        }
+        if (!chunkRetrieved) {
+            qDebug() << "Failed to retrieve chunk" << i << "after retries";
+            break;
         }
     }
     outputFile.close();

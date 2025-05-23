@@ -7,6 +7,8 @@
 #include "schifra_reed_solomon_block.hpp"
 #include "schifra_sequential_root_generator_polynomial_creator.hpp"
 
+// CN_CA_2: Robust polynomial creation with sequential root search
+
 // RS(255, 251) with 4 parity symbols (corrects up to 2 errors)
 #define CODE_LENGTH 255
 #define FEC_LENGTH 4
@@ -35,25 +37,39 @@ QByteArray addNoise(const QByteArray& data, double noiseProbability) {
 QByteArray encodeData(const QByteArray& data) {
     // Initialize Galois field for GF(2^8) with primitive polynomial
     const unsigned int primitive_poly[] = {1, 0, 1, 1, 1, 0, 0, 0, 1}; // x^8 + x^4 + x^3 + x^2 + 1
-    schifra::galois::field field(8, primitive_poly);
+    schifra::galois::field field(8, 8, primitive_poly);
     
     // Create generator polynomial
     schifra::galois::field_polynomial generator(field, FEC_LENGTH);
-    if (!schifra::make_sequential_root_generator_polynomial(field, FEC_LENGTH, 0, generator)) {
-        qDebug() << "Failed to create generator polynomial";
-        return QByteArray();
+    int index = 0;
+    bool polynomialCreated = false;
+    while (index < 256 && !polynomialCreated) {
+        if (schifra::make_sequential_root_generator_polynomial(field, FEC_LENGTH, index, generator)) {
+            if (generator.deg() == FEC_LENGTH) {
+                polynomialCreated = true;
+                qDebug() << "Successfully created generator polynomial with index" << index;
+            }
+        }
+        if (!polynomialCreated) {
+            index++;
+        }
     }
     
-    // Validate polynomial
-    if (generator.deg() != FEC_LENGTH) {
-        qDebug() << "Invalid generator polynomial degree:" << generator.deg() << "expected:" << FEC_LENGTH;
+    if (!polynomialCreated) {
+        qDebug() << "Failed to create valid generator polynomial after trying indices 0-255";
         return QByteArray();
     }
     
     // Debug polynomial
     qDebug() << "Generator polynomial degree:" << generator.deg();
-    for (std::size_t i = 0; i <= generator.deg(); ++i) {
+    for (std::size_t i = 0; i <= static_cast<std::size_t>(generator.deg()); ++i) {
         qDebug() << "Term" << i << ":" << generator[i].index();
+    }
+
+    // Debug field roots
+    schifra::galois::field_element alpha(field, 1);
+    for (int i = 0; i < FEC_LENGTH; ++i) {
+        qDebug() << "Root" << (index + i) << ":" << (alpha ^ (index + i)).index();
     }
 
     schifra::reed_solomon::encoder<CODE_LENGTH, FEC_LENGTH> encoder(field, generator);
@@ -79,6 +95,7 @@ QByteArray encodeData(const QByteArray& data) {
         for (qsizetype j = 0; j < CODE_LENGTH; ++j) {
             encoded.append(static_cast<char>(block[j]));
         }
+        qDebug() << "Encoded block at offset" << i << "size" << CODE_LENGTH;
     }
     qDebug() << "Encoded data: input size" << data.size() << "output size" << encoded.size();
     return encoded;
@@ -87,16 +104,30 @@ QByteArray encodeData(const QByteArray& data) {
 QByteArray decodeData(const QByteArray& data) {
     // Initialize Galois field for GF(2^8) with primitive polynomial
     const unsigned int primitive_poly[] = {1, 0, 1, 1, 1, 0, 0, 0, 1}; // x^8 + x^4 + x^3 + x^2 + 1
-    schifra::galois::field field(8, primitive_poly);
+    schifra::galois::field field(8, 8, primitive_poly);
     
     // Create generator polynomial (same as encoder)
     schifra::galois::field_polynomial generator(field, FEC_LENGTH);
-    if (!schifra::make_sequential_root_generator_polynomial(field, FEC_LENGTH, 0, generator)) {
-        qDebug() << "Failed to create generator polynomial for decoder";
+    int index = 0;
+    bool polynomialCreated = false;
+    while (index < 256 && !polynomialCreated) {
+        if (schifra::make_sequential_root_generator_polynomial(field, FEC_LENGTH, index, generator)) {
+            if (generator.deg() == FEC_LENGTH) {
+                polynomialCreated = true;
+                qDebug() << "Successfully created decoder generator polynomial with index" << index;
+            }
+        }
+        if (!polynomialCreated) {
+            index++;
+        }
+    }
+    
+    if (!polynomialCreated) {
+        qDebug() << "Failed to create valid decoder generator polynomial after trying indices 0-255";
         return QByteArray();
     }
     
-    schifra::reed_solomon::decoder<CODE_LENGTH, FEC_LENGTH> decoder(field, 0);
+    schifra::reed_solomon::decoder<CODE_LENGTH, FEC_LENGTH> decoder(field, index);
     QByteArray decoded;
 
     // Process data in blocks of CODE_LENGTH (255) bytes
