@@ -5,7 +5,8 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 
-class ChunkServer : public QObject {
+class ChunkServer : public QObject
+{
     Q_OBJECT
 public:
     explicit ChunkServer(int id, QObject *parent = nullptr);

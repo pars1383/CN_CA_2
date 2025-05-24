@@ -3,8 +3,8 @@
 
 #include <QByteArray>
 
-QByteArray addNoise(const QByteArray& data, double noiseProbability);
-QByteArray encodeData(const QByteArray& data);
-QByteArray decodeData(const QByteArray& data);
+QByteArray addNoise(const QByteArray &data, double noiseProbability);
+QByteArray encodeData(const QByteArray &data);
+QByteArray decodeData(const QByteArray &data);
 
 #endif // REEDSOLOMON_H

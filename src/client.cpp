@@ -8,14 +8,17 @@
 
 // CN_CA_2: Enhanced error handling and retrieval logic
 
-Client::Client(QObject *parent) : QObject(parent) {
+Client::Client(QObject *parent) : QObject(parent)
+{
     managerSocket = new QTcpSocket(this);
 }
 
-void Client::storeFile(const QString &filePath) {
+void Client::storeFile(const QString &filePath)
+{
     qDebug() << "Attempting to store file:" << filePath;
     QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly)) {
+    if (!file.open(QIODevice::ReadOnly))
+    {
         qDebug() << "Failed to open file:" << filePath;
         return;
     }
@@ -24,7 +27,8 @@ void Client::storeFile(const QString &filePath) {
 
     // Connect to manager
     managerSocket->connectToHost("127.0.0.1", 5000);
-    if (!managerSocket->waitForConnected(10000)) {
+    if (!managerSocket->waitForConnected(10000))
+    {
         qDebug() << "Failed to connect to manager";
         return;
     }
@@ -42,7 +46,8 @@ void Client::storeFile(const QString &filePath) {
     qDebug() << "Sent store request to manager";
 
     // Read manager response
-    if (!managerSocket->waitForReadyRead(15000)) {
+    if (!managerSocket->waitForReadyRead(15000))
+    {
         qDebug() << "No response from manager";
         file.close();
         return;
@@ -57,11 +62,13 @@ void Client::storeFile(const QString &filePath) {
     // Store chunks
     QString currentServer = firstServer;
     bool storageSuccess = true;
-    for (int i = 0; i < numChunks; ++i) {
+    for (int i = 0; i < numChunks; ++i)
+    {
         QByteArray chunk = file.read(chunkSize);
         qDebug() << "Read chunk" << i << "size:" << chunk.size();
         QByteArray encodedChunk = encodeData(chunk);
-        if (encodedChunk.isEmpty()) {
+        if (encodedChunk.isEmpty())
+        {
             qDebug() << "Encoding failed for chunk" << i;
             storageSuccess = false;
             break;
@@ -71,12 +78,14 @@ void Client::storeFile(const QString &filePath) {
 
         // Retry connection up to 3 times
         bool chunkStored = false;
-        for (int retry = 0; retry < 3; ++retry) {
+        for (int retry = 0; retry < 3; ++retry)
+        {
             QTcpSocket chunkSocket;
             QString host = currentServer.split(":").first();
             int port = currentServer.split(":").last().toInt();
             chunkSocket.connectToHost(host, port);
-            if (!chunkSocket.waitForConnected(10000)) {
+            if (!chunkSocket.waitForConnected(10000))
+            {
                 qDebug() << "Failed to connect to chunk server:" << currentServer << "Retry" << retry + 1;
                 continue;
             }
@@ -91,22 +100,29 @@ void Client::storeFile(const QString &filePath) {
             chunkSocket.flush();
             qDebug() << "Sent chunk" << i << "to" << currentServer;
 
-            if (chunkSocket.waitForReadyRead(15000)) {
+            if (chunkSocket.waitForReadyRead(15000))
+            {
                 QJsonDocument chunkResponseDoc = QJsonDocument::fromJson(chunkSocket.readAll());
                 QJsonObject chunkResponse = chunkResponseDoc.object();
-                if (chunkResponse["status"].toString() == "success") {
+                if (chunkResponse["status"].toString() == "success")
+                {
                     currentServer = chunkResponse["next_server"].toString();
                     qDebug() << "Received response for chunk" << i << "Next server:" << currentServer;
                     chunkStored = true;
                     break;
-                } else {
+                }
+                else
+                {
                     qDebug() << "Invalid response for chunk" << i << ":" << chunkResponse["message"].toString();
                 }
-            } else {
+            }
+            else
+            {
                 qDebug() << "No response from chunk server:" << currentServer << chunkSocket.errorString();
             }
         }
-        if (!chunkStored) {
+        if (!chunkStored)
+        {
             qDebug() << "Failed to store chunk" << i << "after retries";
             storageSuccess = false;
             break;
@@ -114,27 +130,33 @@ void Client::storeFile(const QString &filePath) {
     }
     file.close();
     managerSocket->disconnectFromHost();
-    
-    if (storageSuccess) {
+
+    if (storageSuccess)
+    {
         qDebug() << "File stored successfully";
         retrieveFile(request["file_name"].toString());
-    } else {
+    }
+    else
+    {
         qDebug() << "File storage failed, skipping retrieval";
     }
 }
 
-void Client::retrieveFile(const QString &fileName) {
+void Client::retrieveFile(const QString &fileName)
+{
     qDebug() << "Starting file retrieval for:" << fileName;
 
     // Ensure socket is not connected
-    if (managerSocket->state() != QAbstractSocket::UnconnectedState) {
+    if (managerSocket->state() != QAbstractSocket::UnconnectedState)
+    {
         managerSocket->disconnectFromHost();
         managerSocket->waitForDisconnected(1000);
     }
 
     // Connect to manager
     managerSocket->connectToHost("127.0.0.1", 5000);
-    if (!managerSocket->waitForConnected(10000)) {
+    if (!managerSocket->waitForConnected(10000))
+    {
         qDebug() << "Failed to connect to manager for retrieval";
         return;
     }
@@ -150,7 +172,8 @@ void Client::retrieveFile(const QString &fileName) {
     qDebug() << "Sent retrieve request for:" << fileName;
 
     // Read manager response
-    if (!managerSocket->waitForReadyRead(15000)) {
+    if (!managerSocket->waitForReadyRead(15000))
+    {
         qDebug() << "No response from manager for retrieval";
         return;
     }
@@ -163,22 +186,26 @@ void Client::retrieveFile(const QString &fileName) {
 
     // Retrieve chunks
     QFile outputFile("output.txt");
-    if (!outputFile.open(QIODevice::WriteOnly)) {
+    if (!outputFile.open(QIODevice::WriteOnly))
+    {
         qDebug() << "Failed to open output file: output.txt";
         return;
     }
     qDebug() << "Opened output file: output.txt";
 
     QString currentServer = firstServer;
-    for (int i = 0; i < numChunks; ++i) {
+    for (int i = 0; i < numChunks; ++i)
+    {
         // Retry connection up to 3 times
         bool chunkRetrieved = false;
-        for (int retry = 0; retry < 3; ++retry) {
+        for (int retry = 0; retry < 3; ++retry)
+        {
             QTcpSocket chunkSocket;
             QString host = currentServer.split(":").first();
             int port = currentServer.split(":").last().toInt();
             chunkSocket.connectToHost(host, port);
-            if (!chunkSocket.waitForConnected(10000)) {
+            if (!chunkSocket.waitForConnected(10000))
+            {
                 qDebug() << "Failed to connect to chunk server:" << currentServer << "Retry" << retry + 1;
                 continue;
             }
@@ -192,16 +219,22 @@ void Client::retrieveFile(const QString &fileName) {
             chunkSocket.flush();
             qDebug() << "Sent chunk request for index" << i;
 
-            if (chunkSocket.waitForReadyRead(15000)) {
+            if (chunkSocket.waitForReadyRead(15000))
+            {
                 QJsonDocument chunkResponseDoc = QJsonDocument::fromJson(chunkSocket.readAll());
                 QJsonObject chunkResponse = chunkResponseDoc.object();
-                if (chunkResponse["status"].toString() == "success") {
+                if (chunkResponse["status"].toString() == "success")
+                {
                     QByteArray decodedChunk = QByteArray::fromBase64(chunkResponse["data"].toString().toUtf8());
                     QByteArray decodedData = decodeData(decodedChunk);
-                    if (decodedData.isEmpty()) {
+                    if (decodedData.isEmpty())
+                    {
                         qDebug() << "Decoding failed for chunk" << i;
-                    } else {
-                        if (decodedData.size() > chunkSize) {
+                    }
+                    else
+                    {
+                        if (decodedData.size() > chunkSize)
+                        {
                             qDebug() << "Warning: Decoded chunk" << i << "size" << decodedData.size() << "exceeds expected" << chunkSize;
                             decodedData = decodedData.left(chunkSize);
                         }
@@ -211,14 +244,19 @@ void Client::retrieveFile(const QString &fileName) {
                     qDebug() << "Received chunk" << i << "size:" << decodedData.size() << "Next server:" << currentServer;
                     chunkRetrieved = true;
                     break;
-                } else {
+                }
+                else
+                {
                     qDebug() << "Invalid response for chunk" << i << ":" << chunkResponse["message"].toString();
                 }
-            } else {
+            }
+            else
+            {
                 qDebug() << "No response from chunk server:" << currentServer << chunkSocket.errorString();
             }
         }
-        if (!chunkRetrieved) {
+        if (!chunkRetrieved)
+        {
             qDebug() << "Failed to retrieve chunk" << i << "after retries";
             break;
         }

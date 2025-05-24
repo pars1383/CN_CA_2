@@ -7,31 +7,38 @@
 
 // CN_CA_2: Added chunk validation to prevent empty storage
 
-ChunkServer::ChunkServer(int id, QObject *parent) : QObject(parent), serverId(id) {
+ChunkServer::ChunkServer(int id, QObject *parent) : QObject(parent), serverId(id)
+{
     server = new QTcpServer(this);
     connect(server, &QTcpServer::newConnection, this, &ChunkServer::handleNewConnection);
     QString dirName = QString("CHUNK-%1").arg(id);
     QDir().mkdir(dirName);
 }
 
-bool ChunkServer::listen(quint16 port) {
+bool ChunkServer::listen(quint16 port)
+{
     return server->listen(QHostAddress::LocalHost, port);
 }
 
-void ChunkServer::handleNewConnection() {
+void ChunkServer::handleNewConnection()
+{
     QTcpSocket *clientSocket = server->nextPendingConnection();
-    connect(clientSocket, &QTcpSocket::readyRead, this, [=]() { handleRequest(clientSocket); });
+    connect(clientSocket, &QTcpSocket::readyRead, this, [=]()
+            { handleRequest(clientSocket); });
     connect(clientSocket, &QTcpSocket::disconnected, clientSocket, &QTcpSocket::deleteLater);
 }
 
-void ChunkServer::handleRequest(QTcpSocket *clientSocket) {
+void ChunkServer::handleRequest(QTcpSocket *clientSocket)
+{
     QByteArray requestData;
-    while (clientSocket->bytesAvailable() || clientSocket->waitForReadyRead(10000)) {
+    while (clientSocket->bytesAvailable() || clientSocket->waitForReadyRead(10000))
+    {
         requestData += clientSocket->readAll();
     }
 
     QJsonDocument doc = QJsonDocument::fromJson(requestData);
-    if (doc.isNull()) {
+    if (doc.isNull())
+    {
         qDebug() << "ChunkServer" << serverId << "received invalid JSON";
         QJsonObject response;
         response["status"] = "error";
@@ -47,11 +54,13 @@ void ChunkServer::handleRequest(QTcpSocket *clientSocket) {
     int chunkIndex = request["chunk_index"].toInt();
     QString chunkPath = QString("CHUNK-%1/chunk_%2_%3.bin").arg(serverId).arg(fileId).arg(chunkIndex);
 
-    if (request.contains("data")) {
+    if (request.contains("data"))
+    {
         // Store chunk
         QString data = request["data"].toString();
         QByteArray decodedData = QByteArray::fromBase64(data.toUtf8());
-        if (decodedData.isEmpty()) {
+        if (decodedData.isEmpty())
+        {
             qDebug() << "ChunkServer" << serverId << "received empty chunk for:" << chunkPath;
             QJsonObject response;
             response["status"] = "error";
@@ -63,11 +72,14 @@ void ChunkServer::handleRequest(QTcpSocket *clientSocket) {
         }
 
         QFile file(chunkPath);
-        if (file.open(QIODevice::WriteOnly)) {
+        if (file.open(QIODevice::WriteOnly))
+        {
             qint64 bytesWritten = file.write(decodedData);
             file.close();
             qDebug() << "ChunkServer" << serverId << "stored chunk:" << chunkPath << "size:" << bytesWritten;
-        } else {
+        }
+        else
+        {
             qDebug() << "ChunkServer" << serverId << "failed to open file:" << chunkPath;
             QJsonObject response;
             response["status"] = "error";
@@ -86,15 +98,20 @@ void ChunkServer::handleRequest(QTcpSocket *clientSocket) {
         clientSocket->write(responseDoc.toJson());
         clientSocket->flush();
         qDebug() << "ChunkServer" << serverId << "sent response, next server:" << response["next_server"].toString();
-    } else {
+    }
+    else
+    {
         // Retrieve chunk
         QFile file(chunkPath);
         QByteArray data;
-        if (file.open(QIODevice::ReadOnly)) {
+        if (file.open(QIODevice::ReadOnly))
+        {
             data = file.readAll();
             file.close();
             qDebug() << "ChunkServer" << serverId << "read chunk:" << chunkPath << "size:" << data.size();
-        } else {
+        }
+        else
+        {
             qDebug() << "ChunkServer" << serverId << "failed to read chunk:" << chunkPath;
             QJsonObject response;
             response["status"] = "error";
