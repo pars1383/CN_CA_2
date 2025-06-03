@@ -162,3 +162,90 @@ Both reduce access times by:
 
     Replicating data strategically.
 
+
+
+#  UDP Firewall Hole Punching
+
+This module uses UDP hole punching to bypass NAT/firewall restrictions by sending a small UDP datagram ("PUNCH") to a target chunk server. Since many NAT devices allow return traffic from an IP/port once an outgoing packet has been sent to that destination, this technique establishes a temporary pathway for incoming traffic.
+
+    The client sends a UDP datagram to the chunk server’s public IP and port.
+
+    The NAT device records this outgoing request, allowing responses from the same destination.
+
+    The chunk server can then respond (e.g., with "ACK"), successfully establishing a peer-to-peer connection through the firewall.
+
+---
+
+##  Code Overview
+
+### `firewall_punching.h`
+
+```cpp
+#ifndef FIREWALL_PUNCHING_H
+#define FIREWALL_PUNCHING_H
+#include <QObject>
+#include <QUdpSocket>
+
+class FirewallPunching : public QObject
+{
+    Q_OBJECT
+public:
+    explicit FirewallPunching(QObject *parent = nullptr);
+    void performHolePunching(const QString &peerAddress, int peerPort);
+private slots:
+    void handleDatagram();
+private:
+    QUdpSocket *udpSocket;
+};
+#endif
+```
+
+* Defines the `FirewallPunching` class.
+* Includes a UDP socket, a method to send punch datagrams, and a slot to handle incoming responses.
+
+---
+
+### `firewall_punching.cpp`
+
+```cpp
+#include "firewall_punching.h"
+#include <QUdpSocket>
+#include <QDebug>
+
+FirewallPunching::FirewallPunching(QObject *parent) : QObject(parent)
+{
+    udpSocket = new QUdpSocket(this);
+    udpSocket->bind(0); // Dynamic port
+    connect(udpSocket, &QUdpSocket::readyRead, this, &FirewallPunching::handleDatagram);
+}
+
+void FirewallPunching::performHolePunching(const QString &peerAddress, int peerPort)
+{
+    QByteArray data = "PUNCH";
+    udpSocket->writeDatagram(data, QHostAddress(peerAddress), peerPort);
+    qDebug() << "Sent punch to" << peerAddress << ":" << peerPort;
+}
+
+void FirewallPunching::handleDatagram()
+{
+    while (udpSocket->hasPendingDatagrams())
+    {
+        QByteArray datagram;
+        datagram.resize(udpSocket->pendingDatagramSize());
+        QHostAddress sender;
+        quint16 senderPort;
+        udpSocket->readDatagram(datagram.data(), datagram.size(), &sender, &senderPort);
+        qDebug() << "Received from" << sender.toString() << ":" << senderPort;
+    }
+}
+```
+
+* Initializes a `QUdpSocket` on a dynamic port.
+* Sends `"PUNCH"` datagrams to chunk servers.
+* Logs any incoming responses (e.g., `"ACK"` messages).
+
+
+
+
+
+
